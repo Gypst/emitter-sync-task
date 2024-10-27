@@ -54,27 +54,55 @@ class EventHandler extends EventStatistics<EventName> {
   // Feel free to edit this class
 
   repository: EventRepository;
+  localStatsMap: Map<EventName, number>;
 
   constructor(emitter: EventEmitter<EventName>, repository: EventRepository) {
     super();
     this.repository = repository;
+    this.localStatsMap = new Map();
 
-    emitter.subscribe(EventName.EventA, () =>
-      this.repository.saveEventData(EventName.EventA, 1)
-    );
+    Object.values(EventName).forEach((event) => {
+      this.localStatsMap.set(event, 0);
+
+      emitter.subscribe(event, () => {
+        let localEventCount = this.localStatsMap.get(event)! + 1;
+        this.localStatsMap.set(event, localEventCount);
+        this.setStats(event, localEventCount);
+
+        this.repository.saveEventData(event, 1);
+      });
+
+      emitter.unsubscribe(event, () => this.localStatsMap.set(event, 0));
+    });
   }
 }
 
 class EventRepository extends EventDelayedRepository<EventName> {
   // Feel free to edit this class
 
-  async saveEventData(eventName: EventName, _: number) {
+  missedCallsCount: Map<EventName, number>;
+
+  constructor() {
+    super();
+    this.missedCallsCount = new Map();
+  }
+
+  async saveEventData(eventName: EventName, eventCountIncrease: number) {
+    const missedIncrement = this.missedCallsCount.get(eventName) ?? 0;
+    // console.log(`get event ${eventName}, missed = ${missedIncrement}`);
+
     try {
-      await this.updateEventStatsBy(eventName, 1);
-      this;
+      await this.updateEventStatsBy(
+        eventName,
+        eventCountIncrease + missedIncrement
+      );
+      this.missedCallsCount.set(eventName, 0);
+      // console.log(`all good ${eventName}, missed = 0`);
     } catch (e) {
-      // const _error = e as EventRepositoryError;
-      // console.warn(error);
+      this.missedCallsCount.set(eventName, missedIncrement + 1);
+      // console.warn(
+      //   `${eventName} has error :${e}; Missed = ${missedIncrement + 1}`
+      // );
     }
   }
 }
